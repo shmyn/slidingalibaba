@@ -1,0 +1,53 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile and overall progression",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "displayName": { "type": "string" },
+        "unlockedStages": {
+          "type": "object",
+          "properties": {
+            "1": { "type": "number", "description": "Highest unlocked stage in chapter 1 (1-9)" },
+            "2": { "type": "number", "description": "Highest unlocked stage in chapter 2 (1-9)" },
+            "3": { "type": "number", "description": "Highest unlocked stage in chapter 3 (1-9)" }
+          }
+        },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "lastLoginAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "createdAt", "unlockedStages"]
+    },
+    "StageRun": {
+      "title": "StageRun",
+      "description": "Telemetry data for a single attempt of a stage",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "chapterId": { "type": "number" },
+        "stageId": { "type": "number" },
+        "status": { "type": "string", "enum": ["completed", "failed_time", "skipped", "abandoned"] },
+        "startedAt": { "type": "string", "format": "date-time" },
+        "endedAt": { "type": "string", "format": "date-time" },
+        "durationMs": { "type": "number" },
+        "firstMoveTimeMs": { "type": "number" },
+        "moveCount": { "type": "number" },
+        "gridSize": { "type": "number" }
+      },
+      "required": ["uid", "chapterId", "stageId", "status", "startedAt", "moveCount"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "Stores user profiles and their global progression"
+    },
+    "/users/{userId}/runs/{runId}": {
+      "schema": { "$ref": "#/entities/StageRun" },
+      "description": "Stores telemetry data for every stage attempt by the user"
+    }
+  }
+}
