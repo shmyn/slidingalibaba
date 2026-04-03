@@ -25,9 +25,11 @@ service cloud.firestore {
              request.resource.data.uid.size() > 0 && request.resource.data.uid.size() < 128 &&
              request.resource.data.createdAt is timestamp &&
              request.resource.data.unlockedStages is map &&
-             (!('email' in request.resource.data) || (request.resource.data.email is string && request.resource.data.email.size() < 256)) &&
-             (!('displayName' in request.resource.data) || (request.resource.data.displayName is string && request.resource.data.displayName.size() < 100)) &&
+             (!('email' in request.resource.data) || request.resource.data.email == null || (request.resource.data.email is string && request.resource.data.email.size() < 256)) &&
+             (!('displayName' in request.resource.data) || request.resource.data.displayName == null || (request.resource.data.displayName is string && request.resource.data.displayName.size() < 100)) &&
+             (!('nickname' in request.resource.data) || request.resource.data.nickname == null || (request.resource.data.nickname is string && request.resource.data.nickname.size() < 100)) &&
              (!('isAnonymous' in request.resource.data) || request.resource.data.isAnonymous is bool) &&
+             (!('carpets' in request.resource.data) || request.resource.data.carpets is number) &&
              (!('lastLoginAt' in request.resource.data) || request.resource.data.lastLoginAt is timestamp);
     }
 
@@ -41,6 +43,8 @@ service cloud.firestore {
              request.resource.data.status in ['completed', 'failed_time', 'skipped', 'abandoned', 'restarted'] &&
              request.resource.data.startedAt is timestamp &&
              request.resource.data.moveCount is number &&
+             (!('nickname' in request.resource.data) || request.resource.data.nickname == null || (request.resource.data.nickname is string && request.resource.data.nickname.size() < 100)) &&
+             (!('isAnonymous' in request.resource.data) || request.resource.data.isAnonymous is bool) &&
              (!('endedAt' in request.resource.data) || request.resource.data.endedAt is timestamp) &&
              (!('durationMs' in request.resource.data) || request.resource.data.durationMs is number) &&
              (!('firstMoveTimeMs' in request.resource.data) || request.resource.data.firstMoveTimeMs == null || request.resource.data.firstMoveTimeMs is number) &&
@@ -52,6 +56,20 @@ service cloud.firestore {
         (request.auth.token.email == "shimyeeun04@gmail.com" && request.auth.token.email_verified == true);
     }
     
+    // Transaction Validator
+    function isValidTransaction() {
+      return hasRequiredFields(['uid', 'type', 'amount', 'timestamp']) &&
+             request.resource.data.uid is string &&
+             request.resource.data.type in ['purchase', 'use_freeze', 'use_skip'] &&
+             request.resource.data.amount is number &&
+             request.resource.data.timestamp is timestamp &&
+             (!('nickname' in request.resource.data) || request.resource.data.nickname is string) &&
+             (!('costKrw' in request.resource.data) || request.resource.data.costKrw is number) &&
+             (!('chapterId' in request.resource.data) || request.resource.data.chapterId is number) &&
+             (!('stageId' in request.resource.data) || request.resource.data.stageId is number) &&
+             (!('timeRatio' in request.resource.data) || request.resource.data.timeRatio is number);
+    }
+
     match /users/{userId} {
       allow read: if isOwner(userId) || isAdmin();
       allow create: if isOwner(userId) && isValidUser() && uidUnchanged();
@@ -62,9 +80,19 @@ service cloud.firestore {
         allow create: if isOwner(userId) && isValidStageRun() && uidUnchanged();
         allow update: if isOwner(userId) && isValidStageRun() && uidNotModified();
       }
+
+      match /transactions/{txId} {
+        allow read: if isOwner(userId) || isAdmin();
+        allow create: if isOwner(userId) && isValidTransaction() && uidUnchanged();
+        allow update: if false; // Transactions are immutable
+      }
     }
 
     match /{path=**}/runs/{runId} {
+      allow read: if isAuthenticated();
+    }
+
+    match /{path=**}/transactions/{txId} {
       allow read: if isAdmin();
     }
   }

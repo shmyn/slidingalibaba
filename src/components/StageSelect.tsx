@@ -2,10 +2,10 @@ import React from 'react';
 import { useAppStore } from '../store';
 import { translations } from '../i18n';
 import { motion } from 'motion/react';
-import { Lock, Unlock } from 'lucide-react';
+import { Lock, Unlock, Coins } from 'lucide-react';
 
 export const StageSelect: React.FC = () => {
-  const { language, setScreen, currentChapter, setStage, unlockedStages } = useAppStore();
+  const { language, setScreen, currentChapter, setStage, unlockedStages, gold } = useAppStore();
   const t = translations[language];
 
   const handleSelect = (stage: number) => {
@@ -25,7 +25,10 @@ export const StageSelect: React.FC = () => {
           &larr; {t.back}
         </button>
         <h2 className="text-3xl font-serif text-amber-500">{t.chapter} {currentChapter} - {t.selectStage}</h2>
-        <div className="w-16"></div>
+        <div className="flex items-center space-x-2 bg-stone-800 px-4 py-2 rounded-full border border-amber-900/30 shadow-inner">
+          <Coins className="w-5 h-5 text-amber-400" />
+          <span className="text-amber-200 text-lg font-mono font-bold">{gold}</span>
+        </div>
       </div>
 
       <div className="grid grid-cols-3 gap-6 w-full max-w-2xl">

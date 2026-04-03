@@ -10,7 +10,7 @@ import { onAuthStateChanged } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
 
 export default function App() {
-  const { screen, setUnlockedStages, setScreen } = useAppStore();
+  const { screen, setUnlockedStages, setScreen, setCarpets, setNickname } = useAppStore();
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
@@ -23,6 +23,21 @@ export default function App() {
             if (data.unlockedStages) {
               setUnlockedStages(data.unlockedStages);
             }
+            if (data.carpets !== undefined) {
+              setCarpets(data.carpets);
+            } else if (data.coins !== undefined) {
+              // Migrate old users
+              setCarpets(data.coins);
+              await updateDoc(userRef, { carpets: data.coins });
+            } else {
+              setCarpets(3); // Default for existing users without carpets
+            }
+            if (data.nickname) {
+              setNickname(data.nickname);
+            } else {
+              setNickname(user.displayName || 'Player');
+              await updateDoc(userRef, { nickname: user.displayName || 'Player' });
+            }
           }
         } catch (error) {
           console.error("Failed to fetch user data", error);
@@ -30,6 +45,8 @@ export default function App() {
       } else {
         // Reset to default for guests or logged out users
         setUnlockedStages({ 1: 1, 2: 1, 3: 1 });
+        setCarpets(3);
+        setNickname('Guest');
         if (!user) {
           setScreen('title');
         }
@@ -37,7 +54,7 @@ export default function App() {
     });
 
     return () => unsubscribe();
-  }, [setUnlockedStages, setScreen]);
+  }, [setUnlockedStages, setScreen, setCarpets, setNickname]);
 
   return (
     <div className="font-sans antialiased">

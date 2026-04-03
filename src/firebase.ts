@@ -22,8 +22,10 @@ export const loginAnonymously = async () => {
         uid: user.uid,
         isAnonymous: true,
         displayName: 'Guest',
+        nickname: 'Guest',
         createdAt: serverTimestamp(),
         lastLoginAt: serverTimestamp(),
+        carpets: 3,
         unlockedStages: {
           "1": 1,
           "2": 1,
@@ -57,8 +59,10 @@ export const loginWithGoogle = async () => {
         uid: user.uid,
         email: user.email,
         displayName: user.displayName,
+        nickname: user.displayName || 'Player',
         createdAt: serverTimestamp(),
         lastLoginAt: serverTimestamp(),
+        carpets: 3,
         unlockedStages: {
           "1": 1,
           "2": 1,

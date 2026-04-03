@@ -34,25 +34,48 @@ export const getValidMoves = (emptyIndex: number, size: number): number[] => {
   return moves;
 };
 
+export const getManhattanDistance = (board: Tile[], size: number, targetWord: string): number => {
+  let dist = 0;
+  board.forEach((tile, i) => {
+    if (tile.isEmpty) return;
+    // Find target position of this character
+    // Assuming characters are unique enough, or just use the tile's original ID
+    // Since we created the board sequentially, tile.id is its target index
+    const targetRow = Math.floor(tile.id / size);
+    const targetCol = tile.id % size;
+    const currentRow = Math.floor(i / size);
+    const currentCol = i % size;
+    dist += Math.abs(targetRow - currentRow) + Math.abs(targetCol - currentCol);
+  });
+  return dist;
+};
+
 export const shuffleBoard = (board: Tile[], size: number, moves: number = 1000): Tile[] => {
   let currentBoard = [...board];
   let emptyIndex = currentBoard.findIndex(t => t.isEmpty);
+  let lastMove = -1;
 
   for (let i = 0; i < moves; i++) {
     const validMoves = getValidMoves(emptyIndex, size);
-    const randomMove = validMoves[Math.floor(Math.random() * validMoves.length)];
+    // Avoid moving back to the previous position immediately to ensure better shuffling
+    const filteredMoves = validMoves.filter(m => m !== lastMove);
+    const possibleMoves = filteredMoves.length > 0 ? filteredMoves : validMoves;
+    const randomMove = possibleMoves[Math.floor(Math.random() * possibleMoves.length)];
     
     // Swap
     const temp = currentBoard[emptyIndex];
     currentBoard[emptyIndex] = currentBoard[randomMove];
     currentBoard[randomMove] = temp;
     
+    lastMove = emptyIndex;
     emptyIndex = randomMove;
   }
 
-  // Ensure it's not solved initially
+  // Ensure it's not solved initially and has a minimum Manhattan distance
   const targetWord = board.filter(t => !t.isEmpty).map(t => t.char).join('');
-  if (isSolved(currentBoard, targetWord)) {
+  const minDistance = size === 3 ? 10 : 20;
+  
+  if (isSolved(currentBoard, targetWord) || getManhattanDistance(currentBoard, size, targetWord) < minDistance) {
     return shuffleBoard(board, size, moves);
   }
 

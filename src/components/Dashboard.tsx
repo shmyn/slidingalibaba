@@ -1,10 +1,10 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { useAppStore } from '../store';
 import { auth, db } from '../firebase';
-import { collectionGroup, getDocs, query, collection } from 'firebase/firestore';
+import { collectionGroup, getDocs, query, collection, orderBy } from 'firebase/firestore';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell } from 'recharts';
 import { puzzles } from '../data/puzzles';
-import { LayoutDashboard, Users, Trophy, AlertTriangle, Clock, ArrowLeft, Filter, SortAsc, SortDesc } from 'lucide-react';
+import { LayoutDashboard, Users, Trophy, AlertTriangle, Clock, ArrowLeft, Filter, SortAsc, SortDesc, DollarSign, Activity } from 'lucide-react';
 
 interface RunData {
   uid: string;
@@ -15,6 +15,17 @@ interface RunData {
   firstMoveTimeMs?: number;
   moveCount: number;
   gridSize: number;
+}
+
+interface TransactionData {
+  uid: string;
+  type: 'purchase' | 'use_freeze' | 'use_skip';
+  amount: number;
+  costKrw?: number;
+  chapterId?: number;
+  stageId?: number;
+  timeRatio?: number;
+  timestamp: any;
 }
 
 interface MetricConfig {
@@ -36,9 +47,11 @@ const METRICS: MetricConfig[] = [
 export const Dashboard: React.FC = () => {
   const { setScreen } = useAppStore();
   const [runs, setRuns] = useState<RunData[]>([]);
+  const [transactions, setTransactions] = useState<TransactionData[]>([]);
   const [loading, setLoading] = useState(true);
   const [chapterFilter, setChapterFilter] = useState<number | 'all'>('all');
-  const [segmentFilter, setSegmentFilter] = useState<'all' | 'top' | 'bottom'>('all');
+  const [segmentFilter, setSegmentFilter] = useState<'all' | 'top' | 'bottom' | 'top30_spender' | 'top70_spender' | 'top100_spender'>('all');
+  const [timeDisplayMode, setTimeDisplayMode] = useState<'absolute' | 'ratio'>('absolute');
   const [selectedMetrics, setSelectedMetrics] = useState<string[]>(['avgClearTime', 'timeLimit', 'successRate']);
   const [sortKey, setSortKey] = useState<string>('name');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
@@ -46,9 +59,16 @@ export const Dashboard: React.FC = () => {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const runsSnap = await getDocs(collectionGroup(db, 'runs'));
+        const [runsSnap, txSnap] = await Promise.all([
+          getDocs(collectionGroup(db, 'runs')),
+          getDocs(collectionGroup(db, 'transactions'))
+        ]);
+        
         const runsData = runsSnap.docs.map(doc => doc.data() as RunData);
+        const txData = txSnap.docs.map(doc => doc.data() as TransactionData);
+        
         setRuns(runsData);
+        setTransactions(txData.sort((a, b) => b.timestamp?.toMillis() - a.timestamp?.toMillis()));
       } catch (error) {
         console.error("Error fetching dashboard data", error);
       } finally {
@@ -68,34 +88,62 @@ export const Dashboard: React.FC = () => {
 
     // User Segment Filter
     if (segmentFilter !== 'all') {
-      const userStatsMap: Record<string, { completed: number; totalMoves: number }> = {};
-      runs.forEach(r => {
-        if (!userStatsMap[r.uid]) userStatsMap[r.uid] = { completed: 0, totalMoves: 0 };
-        if (r.status === 'completed') {
-          userStatsMap[r.uid].completed += 1;
-          userStatsMap[r.uid].totalMoves += r.moveCount;
+      if (segmentFilter === 'top' || segmentFilter === 'bottom') {
+        const userStatsMap: Record<string, { completed: number; totalMoves: number }> = {};
+        runs.forEach(r => {
+          if (!userStatsMap[r.uid]) userStatsMap[r.uid] = { completed: 0, totalMoves: 0 };
+          if (r.status === 'completed') {
+            userStatsMap[r.uid].completed += 1;
+            userStatsMap[r.uid].totalMoves += r.moveCount;
+          }
+        });
+
+        const userList = Object.entries(userStatsMap).map(([uid, stats]) => ({
+          uid,
+          score: stats.completed
+        })).sort((a, b) => b.score - a.score);
+
+        const topCount = Math.ceil(userList.length * 0.3);
+        const bottomCount = Math.ceil(userList.length * 0.3);
+
+        if (segmentFilter === 'top') {
+          const topUids = new Set(userList.slice(0, topCount).map(u => u.uid));
+          result = result.filter(r => topUids.has(r.uid));
+        } else if (segmentFilter === 'bottom') {
+          const bottomUids = new Set(userList.slice(-bottomCount).map(u => u.uid));
+          result = result.filter(r => bottomUids.has(r.uid));
         }
-      });
-
-      const userList = Object.entries(userStatsMap).map(([uid, stats]) => ({
-        uid,
-        score: stats.completed // Simple score: total stages completed
-      })).sort((a, b) => b.score - a.score);
-
-      const topCount = Math.ceil(userList.length * 0.3);
-      const bottomCount = Math.ceil(userList.length * 0.3);
-
-      if (segmentFilter === 'top') {
-        const topUids = new Set(userList.slice(0, topCount).map(u => u.uid));
-        result = result.filter(r => topUids.has(r.uid));
-      } else if (segmentFilter === 'bottom') {
-        const bottomUids = new Set(userList.slice(-bottomCount).map(u => u.uid));
-        result = result.filter(r => bottomUids.has(r.uid));
+      } else if (segmentFilter.includes('spender')) {
+        const spendingByUser = transactions
+          .filter(tx => tx.type === 'purchase')
+          .reduce((acc, tx) => {
+            acc[tx.uid] = (acc[tx.uid] || 0) + (tx.costKrw || 0);
+            return acc;
+          }, {} as Record<string, number>);
+        
+        const spenders = Object.entries(spendingByUser)
+          .filter(([_, amount]) => amount > 0)
+          .sort((a, b) => b[1] - a[1]);
+          
+        const totalSpenders = spenders.length;
+        const top30Index = Math.ceil(totalSpenders * 0.3);
+        const top70Index = Math.ceil(totalSpenders * 0.7);
+        
+        let allowedUids = new Set<string>();
+        if (segmentFilter === 'top30_spender') {
+          allowedUids = new Set(spenders.slice(0, top30Index).map(s => s[0]));
+        } else if (segmentFilter === 'top70_spender') {
+          allowedUids = new Set(spenders.slice(0, top70Index).map(s => s[0]));
+        } else if (segmentFilter === 'top100_spender') {
+          allowedUids = new Set(spenders.map(s => s[0]));
+        }
+        
+        result = result.filter(r => allowedUids.has(r.uid));
       }
     }
 
     return result;
-  }, [runs, chapterFilter, segmentFilter]);
+  }, [runs, transactions, chapterFilter, segmentFilter]);
 
   const stats = useMemo(() => {
     if (filteredRuns.length === 0) return null;
@@ -147,12 +195,16 @@ export const Dashboard: React.FC = () => {
     const difficultyData = Object.entries(stageStats).map(([key, s]) => {
       const chapter = parseInt(key.match(/C(\d+)/)?.[1] || '0');
       const stage = parseInt(key.match(/S(\d+)/)?.[1] || '0');
+      
+      const avgClearTimeSec = s.totalClearTime / (s.completed || 1) / 1000;
+      const timeLimitSec = s.timeLimit / 1000;
+      
       return {
         name: key,
         chapter,
         stage,
-        avgClearTime: Math.round(s.totalClearTime / (s.completed || 1) / 1000),
-        timeLimit: Math.round(s.timeLimit / 1000),
+        avgClearTime: timeDisplayMode === 'ratio' ? Math.round((avgClearTimeSec / timeLimitSec) * 100) : Math.round(avgClearTimeSec),
+        timeLimit: timeDisplayMode === 'ratio' ? 100 : Math.round(timeLimitSec),
         successRate: Math.round((s.completed / s.total) * 100),
         abandonRate: Math.round((s.abandonedOrSkipped / s.total) * 100),
         avgFirstMove: Math.round(s.totalFirstMove / s.total / 1000 * 10) / 10
@@ -194,7 +246,26 @@ export const Dashboard: React.FC = () => {
         { name: 'Restarted', value: restarted, color: '#8b5cf6' }
       ]
     };
-  }, [filteredRuns, sortKey, sortOrder]);
+  }, [filteredRuns, sortKey, sortOrder, timeDisplayMode]);
+
+  const economyStats = useMemo(() => {
+    const totalUsers = new Set(runs.map(r => r.uid)).size || 1;
+    const spenders = new Set(transactions.filter(tx => tx.type === 'purchase').map(tx => tx.uid)).size;
+    const conversionRate = (spenders / totalUsers) * 100;
+    
+    const freezeUses = transactions.filter(tx => tx.type === 'use_freeze').length;
+    const skipUses = transactions.filter(tx => tx.type === 'use_skip').length;
+    
+    // Freeze usage rate per run
+    const freezeRate = runs.length > 0 ? (freezeUses / runs.length) * 100 : 0;
+    
+    return {
+      conversionRate: conversionRate.toFixed(1),
+      freezeRate: freezeRate.toFixed(1),
+      freezeUses,
+      skipUses
+    };
+  }, [runs, transactions]);
 
   const toggleMetric = (id: string) => {
     setSelectedMetrics(prev => 
@@ -252,8 +323,22 @@ export const Dashboard: React.FC = () => {
                 className="bg-transparent text-sm focus:outline-none cursor-pointer"
               >
                 <option value="all">All Players</option>
-                <option value="top">Top 30% (Experts)</option>
-                <option value="bottom">Bottom 30% (Struggling)</option>
+                <option value="top">Top 30% (Skill)</option>
+                <option value="bottom">Bottom 30% (Skill)</option>
+                <option value="top30_spender">Top 30% (Spenders)</option>
+                <option value="top70_spender">Top 70% (Spenders)</option>
+                <option value="top100_spender">All Spenders</option>
+              </select>
+            </div>
+            <div className="flex items-center gap-2 px-3 border-l border-stone-800">
+              <Clock className="w-4 h-4 text-stone-500" />
+              <select 
+                value={timeDisplayMode} 
+                onChange={(e) => setTimeDisplayMode(e.target.value as 'absolute' | 'ratio')}
+                className="bg-transparent text-sm focus:outline-none cursor-pointer"
+              >
+                <option value="absolute">Absolute Time (s)</option>
+                <option value="ratio">Time Ratio (%)</option>
               </select>
             </div>
           </div>
@@ -268,16 +353,16 @@ export const Dashboard: React.FC = () => {
               subValue={`${stats.completed} / ${stats.total} runs`}
             />
             <StatCard 
-              icon={<Clock className="text-amber-500" />} 
-              label="Avg. First Move" 
-              value={`${stats.avgFirstMove}s`} 
-              subValue="Initial hesitation time"
+              icon={<DollarSign className="text-amber-500" />} 
+              label="Conversion Rate" 
+              value={`${economyStats.conversionRate}%`} 
+              subValue="Players who purchased"
             />
             <StatCard 
-              icon={<AlertTriangle className="text-rose-500" />} 
-              label="Abandonment Rate" 
-              value={`${Math.round(((stats.skipped + stats.abandoned + stats.restarted) / stats.total) * 100)}%`} 
-              subValue={`${stats.skipped + stats.abandoned + stats.restarted} players left`}
+              icon={<Activity className="text-cyan-500" />} 
+              label="Freeze Usage Rate" 
+              value={`${economyStats.freezeRate}%`} 
+              subValue="Per stage run"
             />
             <StatCard 
               icon={<Clock className="text-blue-500" />} 
@@ -380,7 +465,7 @@ export const Dashboard: React.FC = () => {
                   <BarChart data={stats.difficultyData}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#333" vertical={false} />
                     <XAxis dataKey="name" stroke="#888" fontSize={12} />
-                    <YAxis yAxisId="left" stroke="#888" fontSize={12} label={{ value: 'Seconds', angle: -90, position: 'insideLeft', fill: '#888' }} />
+                    <YAxis yAxisId="left" stroke="#888" fontSize={12} label={{ value: timeDisplayMode === 'ratio' ? 'Percentage (%)' : 'Seconds', angle: -90, position: 'insideLeft', fill: '#888' }} />
                     <YAxis yAxisId="right" orientation="right" stroke="#888" fontSize={12} label={{ value: 'Percentage (%)', angle: 90, position: 'insideRight', fill: '#888' }} />
                     <Tooltip 
                       contentStyle={{ backgroundColor: '#1c1917', border: '1px solid #444', borderRadius: '8px' }}
@@ -399,6 +484,59 @@ export const Dashboard: React.FC = () => {
             </div>
           </div>
         )}
+
+        {/* Economy Log Section */}
+        <div className="mt-8 bg-stone-900 p-6 rounded-2xl border border-stone-800 shadow-xl">
+          <h3 className="text-lg font-semibold mb-6 flex items-center gap-2">
+            <DollarSign className="w-5 h-5 text-amber-500" />
+            Economy & Item Usage Log
+          </h3>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm text-stone-400">
+              <thead className="text-xs text-stone-500 uppercase bg-stone-950/50">
+                <tr>
+                  <th className="px-4 py-3 rounded-tl-lg">Time</th>
+                  <th className="px-4 py-3">Player UID</th>
+                  <th className="px-4 py-3">Action</th>
+                  <th className="px-4 py-3">Amount</th>
+                  <th className="px-4 py-3">Stage Context</th>
+                  <th className="px-4 py-3 rounded-tr-lg">Time Ratio (When Used)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {transactions.slice(0, 50).map((tx, idx) => (
+                  <tr key={idx} className="border-b border-stone-800/50 hover:bg-stone-800/20">
+                    <td className="px-4 py-3">{tx.timestamp ? new Date(tx.timestamp.toMillis()).toLocaleString() : 'Just now'}</td>
+                    <td className="px-4 py-3 font-mono text-xs truncate max-w-[100px]">{tx.uid}</td>
+                    <td className="px-4 py-3">
+                      {tx.type === 'purchase' && <span className="text-emerald-400">Purchase (₩{tx.costKrw})</span>}
+                      {tx.type === 'use_freeze' && <span className="text-cyan-400">Use Freeze</span>}
+                      {tx.type === 'use_skip' && <span className="text-amber-400">Use Skip</span>}
+                    </td>
+                    <td className="px-4 py-3 font-bold">
+                      <span className={tx.amount > 0 ? 'text-emerald-500' : 'text-rose-500'}>
+                        {tx.amount > 0 ? '+' : ''}{tx.amount} 🧞‍♂️
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      {tx.chapterId ? `C${tx.chapterId} S${tx.stageId}` : '-'}
+                    </td>
+                    <td className="px-4 py-3">
+                      {tx.timeRatio !== undefined && tx.timeRatio > 0 
+                        ? `${(tx.timeRatio * 100).toFixed(1)}% remaining` 
+                        : '-'}
+                    </td>
+                  </tr>
+                ))}
+                {transactions.length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="px-4 py-8 text-center text-stone-500">No economy data recorded yet.</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
       </div>
     </div>
   );

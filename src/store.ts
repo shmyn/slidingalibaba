@@ -9,12 +9,16 @@ interface AppState {
   currentChapter: number | null;
   currentStage: number | null;
   unlockedStages: Record<number, number>;
+  carpets: number;
+  nickname: string;
   
   setScreen: (screen: Screen) => void;
   setLanguage: (lang: Language) => void;
   setChapter: (chapter: number) => void;
   setStage: (stage: number) => void;
   setUnlockedStages: (stages: Record<number, number>) => void;
+  setCarpets: (carpets: number) => void;
+  setNickname: (nickname: string) => void;
   unlockNextStage: (chapter: number, stage: number) => void;
 }
 
@@ -24,12 +28,16 @@ export const useAppStore = create<AppState>((set) => ({
   currentChapter: null,
   currentStage: null,
   unlockedStages: { 1: 1, 2: 1, 3: 1 },
+  carpets: 3,
+  nickname: '',
   
   setScreen: (screen) => set({ screen }),
   setLanguage: (language) => set({ language }),
   setChapter: (chapter) => set({ currentChapter: chapter }),
   setStage: (stage) => set({ currentStage: stage }),
   setUnlockedStages: (stages) => set({ unlockedStages: stages }),
+  setCarpets: (carpets) => set({ carpets }),
+  setNickname: (nickname) => set({ nickname }),
   unlockNextStage: (chapter, stage) => set((state) => {
     const currentUnlocked = state.unlockedStages[chapter] || 1;
     if (stage >= currentUnlocked && stage < 9) {
